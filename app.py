@@ -7,7 +7,7 @@ from flask_migrate import Migrate
 from sqlalchemy import or_
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, verify_jwt_in_request
-
+import jwt as jwt1
 # flask db init
 # flask db migrate
 # flask db upgrade
@@ -104,13 +104,13 @@ def login():
                 manager = Manager.query.filter_by(email=request.json["email"]).first()
                 if not manager or not check_password_hash(manager.password, request.json["password"]):
                     return generate_error_response("Invalid Credentials"), 401
-                access_token = create_access_token(manager_identity=manager.id)
+                access_token = create_access_token(identity=manager.id)
                 return Response(json.dumps({'access_token': access_token})), 200
             else:  # user is trying to login
                 user = User.query.filter_by(email=request.json["email"]).first()
                 if not user or not check_password_hash(user.password, request.json["password"]):
                     return generate_error_response("Invalid Credentials"), 401
-                access_token = create_access_token(user_identity=user.id)
+                access_token = create_access_token(identity=user.id)
                 return Response(json.dumps({'access_token': access_token})), 200
     else:
         return generate_error_response("some fields are missing in the request")
@@ -282,17 +282,25 @@ def delete_manager():
 
 @app.route("/edit-manager", methods = ["PATCH"])
 def edit_manager():
-    if "manager_id" in request.json:
+    if "manager_id" not in request.json:
+        return generate_error_response("manager_id is not found in the request body")
+    elif "email" in request.json:
+        return generate_error_response("Email cannot be changed once registered! Remove email from request body.")
+    else:
         manager_id = request.json.get("manager_id")
         # Retrieve the record to be updated
         manager = Manager.query.get(manager_id)
         if not manager:
             return generate_error_response('manager is not found'), 400
+        
+        manager = Manager.query.filter_by(email=request.json["email"]).filter_by(id != manager_id).first()
+        if manager:
+            return generate_error_response('Email is already taken'), 400
         # Update the record attributes
         manager.name = request.json.get('name',manager.name)
         manager.mobile = request.json.get('mobile',manager.mobile)
         manager.age = request.json.get('age',manager.age)
-        manager.email = request.json.get('email',manager.email)
+        # manager.email = request.json.get('email',manager.email)
         manager.address = request.json.get('address',manager.address)
         manager.date_of_birth = request.json.get('date_of_birth',manager.date_of_birth)
         manager.password = request.json.get('password',manager.password)
@@ -300,8 +308,6 @@ def edit_manager():
         # Commit the transaction to save changes to the database
         db.session.commit()
         return Response(json.dumps({'success': 'manager updated successfully',"manager_id":manager_id})), 200 
-    else:
-        return generate_error_response("manager_id is not found in the request body")
 
 
 # User routes
@@ -353,17 +359,22 @@ def delete_user():
 
 @app.route("/edit-user", methods = ["PATCH"])
 def edit_user():
-    if "user_id" in request.json:
+    if "user_id" not in request.json:
+        return generate_error_response("user_id is not found in the request body")
+    elif "email" in request.json:
+        return generate_error_response("Email cannot be changed once registered! Remove email from request body.")
+    else:
         user_id = request.json.get("user_id")
         # Retrieve the record to be updated
         user = User.query.get(user_id)
         if not user:
             return generate_error_response('user is not found'), 400
+        
         # Update the record attributes
         user.name = request.json.get('name',user.name)
         user.mobile = request.json.get('mobile',user.mobile)
         user.age = request.json.get('age',user.age)
-        user.email = request.json.get('email',user.email)
+        # user.email = request.json.get('email',user.email)
         user.address = request.json.get('address',user.address)
         user.date_of_birth = request.json.get('date_of_birth',user.date_of_birth)
         user.password = request.json.get('password',user.password)
@@ -371,8 +382,6 @@ def edit_user():
         # Commit the transaction to save changes to the database
         db.session.commit()
         return Response(json.dumps({'success': 'user updated successfully',"user_id":user_id})), 200 
-    else:
-        return generate_error_response("user_id is not found in the request body")
 
 @app.route("/users/filter", methods = ["GET"])
 def filter_users():
@@ -390,6 +399,14 @@ def filter_users():
             return generate_error_response('no users is found'), 400
         # Serialize users to JSON and return as response
         return Response(json.dumps([user.to_dict() for user in users]), mimetype='application/json'), 200
+    
+@app.route("/decode",methods=["GET"])
+def decode_jwt():
+    token = request.json.get("jwt")
+    decoded_token = jwt1.decode(token, 'jwt-key', algorithms=['HS256'])
+    return Response(json.dumps({"response":decoded_token})),200
+
+
  
 # Error Handling routes
 @app.errorhandler(404)
