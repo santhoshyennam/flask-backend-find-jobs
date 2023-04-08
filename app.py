@@ -1,19 +1,12 @@
 import datetime
 from functools import wraps
 import json
-from flask import Flask, Response, request
+from flask import Flask, Response, g, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import or_
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, verify_jwt_in_request
-import jwt as jwt1
-# flask db init
-# flask db migrate
-# flask db upgrade
-# flask shell 
-
-
+import jwt
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mscs3150'
@@ -23,7 +16,6 @@ app.config['JWT_SECRET_KEY'] = 'jwt-key'
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(hours=24)  # Set access token expiration to 7 days
 db = SQLAlchemy(app)
 migrate = Migrate(app,db)
-jwt = JWTManager(app)
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -96,6 +88,38 @@ class Manager(db.Model):
 
 # Authentication routes
 
+# define the middleware to check for JWT token
+def check_token(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            if 'exp' in data and datetime.datetime.utcnow().timestamp() > data['exp']:
+                return generate_error_response('Token has expired'), 401
+            g.user = data['id']
+        except:
+            g.user = None
+        return func(*args, **kwargs)
+    return wrapped
+
+# define the middleware to check for JWT token
+def check_manager_token(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            if 'exp' in data and datetime.datetime.utcnow().timestamp() > data['exp']:
+                return generate_error_response('Token has expired'), 401
+            if not data['is_manager']:
+                return generate_error_response('UnAuthorized Access'),401
+            g.user = data['id']
+        except:
+            g.user = None
+        return func(*args, **kwargs)
+    return wrapped
+
 @app.route("/login", methods = ["GET"])
 def login():
     if "email" in request.json and "password" in request.json:
@@ -104,14 +128,22 @@ def login():
                 manager = Manager.query.filter_by(email=request.json["email"]).first()
                 if not manager or not check_password_hash(manager.password, request.json["password"]):
                     return generate_error_response("Invalid Credentials"), 401
-                access_token = create_access_token(identity=manager.id)
-                return Response(json.dumps({'access_token': access_token})), 200
+                token = jwt.encode({
+                    'id': manager.id,
+                    'is_manager': True,
+                    'exp': datetime.datetime.utcnow().timestamp() + 40
+                }, app.config['SECRET_KEY'])
+                return Response(json.dumps({'access_token': token})), 200
             else:  # user is trying to login
                 user = User.query.filter_by(email=request.json["email"]).first()
                 if not user or not check_password_hash(user.password, request.json["password"]):
                     return generate_error_response("Invalid Credentials"), 401
-                access_token = create_access_token(identity=user.id)
-                return Response(json.dumps({'access_token': access_token})), 200
+                token = jwt.encode({
+                    'id': user.id,
+                    'is_manager': False,
+                    'exp': datetime.datetime.utcnow().timestamp() + 40
+                }, app.config['SECRET_KEY'])
+                return Response(json.dumps({'access_token': token})), 200
     else:
         return generate_error_response("some fields are missing in the request")
 
@@ -150,7 +182,6 @@ def filter_jobs():
     else:
         # Get filter_text for filtering
         filter_text = request.json.get('filter_text')
-        print(request.json.get("xyzzz"))
         # Build filter criteria based on query parameters
         filters = or_(Job.title.ilike(f'%{filter_text}%'),Job.category.ilike(f'%{filter_text}%'),Job.description.ilike(f'%{filter_text}%'))
         # Query database with filters
@@ -172,7 +203,10 @@ def get_job():
         return Response(json.dumps(job.to_dict()), mimetype='application/json') 
 
 @app.route("/create-job", methods = ["POST"])
+@check_manager_token
 def create_job():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "title" in request.json and "salary" in request.json and "company" in request.json and "category" in request.json and "description" in request.json and "email" in request.json and "created_by" in request.json:
         data = request.get_json()
         new_job = Job(title=data['title'], salary=data['salary'], company=data["company"], category=data["category"], description=data["description"], email=data["email"],created_by=data["created_by"])
@@ -183,7 +217,10 @@ def create_job():
         return generate_error_response("some fields are missing in the request body")
 
 @app.route("/delete-job", methods = ["DELETE"])
+@check_manager_token
 def delete_job():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "job_id" not in request.args:
         return generate_error_response("job_id is not found in query parameters")
     else:
@@ -196,7 +233,10 @@ def delete_job():
         return Response(json.dumps({'success': 'job deleted successfully',"job_id":job_id})), 200  
 
 @app.route("/edit-job", methods = ["PATCH"])
+@check_manager_token
 def edit_job():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "job_id" in request.json:
         job_id = request.json.get("job_id")
         # Retrieve the record to be updated
@@ -219,13 +259,19 @@ def edit_job():
 
 # Manager routes
 @app.route("/managers", methods = ["GET"])
+@check_manager_token
 def get_all_managers():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     managers = Manager.query.all()
     all_managers = json.dumps([manager.to_dict() for manager in managers])
     return Response(all_managers, mimetype='application/json')
 
 @app.route("/manager", methods = ["GET"])
+@check_manager_token
 def get_manager():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "manager_id" not in request.args:
         return generate_error_response("manager_id is not found in query parameters")
     else:
@@ -236,7 +282,10 @@ def get_manager():
         return Response(json.dumps(manager.to_dict()), mimetype='application/json')  
 
 @app.route("/managers/filter", methods = ["GET"])
+@check_manager_token
 def filter_managers():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "filter_text" not in request.json:
         return generate_error_response("filter_text is not found")
     else:
@@ -254,7 +303,10 @@ def filter_managers():
 
 
 @app.route("/create-manager", methods = ["POST"])
+@check_manager_token
 def create_manager():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "name" in request.json and "mobile" in request.json and "age" in request.json and "email" in request.json and "address" in request.json and "date_of_birth" in request.json and "password" in request.json:
         data = request.get_json()
         manager = Manager.query.filter_by(email=request.json["email"]).first()
@@ -268,7 +320,10 @@ def create_manager():
         return generate_error_response("some fields are missing in the request body")
 
 @app.route("/delete-manager", methods = ["DELETE"])
+@check_manager_token
 def delete_manager():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "manager_id" not in request.args:
         return generate_error_response("manager_id is not found in query parameters")
     else:
@@ -281,7 +336,10 @@ def delete_manager():
         return Response(json.dumps({'success': 'Manager deleted successfully','manager_id':manager_id})), 200 
 
 @app.route("/edit-manager", methods = ["PATCH"])
+@check_manager_token
 def edit_manager():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "manager_id" not in request.json:
         return generate_error_response("manager_id is not found in the request body")
     elif "email" in request.json:
@@ -313,13 +371,19 @@ def edit_manager():
 # User routes
 
 @app.route("/users", methods = ["GET"])
+@check_token
 def get_all_users():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     users = User.query.all()
     all_users = json.dumps([user.to_dict() for user in users])
     return Response(all_users, mimetype='application/json')
 
 @app.route("/user", methods = ["GET"])
+@check_token
 def get_user():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "user_id" not in request.args:
         return generate_error_response("user_id is not found in query parameters")
     else:
@@ -330,7 +394,10 @@ def get_user():
         return Response(json.dumps(user.to_dict()), mimetype='application/json') 
 
 @app.route("/create-user", methods = ["POST"])
+@check_manager_token
 def create_user():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "name" in request.json and "mobile" in request.json and "age" in request.json and "email" in request.json and "address" in request.json and "date_of_birth" in request.json and "password" in request.json:
         data = request.get_json()
         user = User.query.filter_by(email=request.json["email"]).first()
@@ -345,7 +412,10 @@ def create_user():
 
 
 @app.route("/delete-user", methods = ["DELETE"])
+@check_manager_token
 def delete_user():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "user_id" not in request.args:
         return generate_error_response("user_id is not found in query parameters")
     else:
@@ -358,7 +428,10 @@ def delete_user():
         return Response(json.dumps({'success': 'user deleted successfully',"user_id":user_id})), 200 
 
 @app.route("/edit-user", methods = ["PATCH"])
+@check_token
 def edit_user():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "user_id" not in request.json:
         return generate_error_response("user_id is not found in the request body")
     elif "email" in request.json:
@@ -384,7 +457,10 @@ def edit_user():
         return Response(json.dumps({'success': 'user updated successfully',"user_id":user_id})), 200 
 
 @app.route("/users/filter", methods = ["GET"])
+@check_token
 def filter_users():
+    if not g.user:
+        return generate_error_response('UnAuthorize Access'),401
     if "filter_text" not in request.json:
         return generate_error_response("filter_text is not found")
     else:
@@ -400,14 +476,6 @@ def filter_users():
         # Serialize users to JSON and return as response
         return Response(json.dumps([user.to_dict() for user in users]), mimetype='application/json'), 200
     
-@app.route("/decode",methods=["GET"])
-def decode_jwt():
-    token = request.json.get("jwt")
-    decoded_token = jwt1.decode(token, 'jwt-key', algorithms=['HS256'])
-    return Response(json.dumps({"response":decoded_token})),200
-
-
- 
 # Error Handling routes
 @app.errorhandler(404)
 def page_not_found(e):
@@ -429,15 +497,3 @@ def generate_error_response(message):
     # error = json.dumps({ "error": message, "errorCode": 404})
     error = json.dumps({ "error": message})
     return Response(error,mimetype="application/json")
-
-def jwt_required_for_functions(functions):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if func.__name__ in functions:
-                verify_jwt_in_request()
-                current_user_id = get_jwt_identity().get('manager_identity')
-                # do something with the current user ID, like looking it up in the database
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
