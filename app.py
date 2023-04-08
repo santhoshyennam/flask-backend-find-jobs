@@ -197,7 +197,7 @@ def get_job():
         return generate_error_response("job_id is not found in query parameters")
     else:
         job_id =  request.args.get('job_id')
-        job = Job.query.get_or_404(job_id)
+        job = Job.query.get(job_id)
         if not job:
             return generate_error_response('job is not found'), 400
         return Response(json.dumps(job.to_dict()), mimetype='application/json') 
