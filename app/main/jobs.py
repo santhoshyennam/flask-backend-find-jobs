@@ -30,7 +30,7 @@ def filter_jobs():
         if not jobs:
             return generate_error_response('no match is found'), 400
         # Serialize jobs to JSON and return as response
-        return Response(json.dumps({'jobs': [job.to_dict() for job in jobs]}), mimetype='application/json'), 200
+        return Response(json.dumps([job.to_dict() for job in jobs]), mimetype='application/json'), 200
 
 @main.route("/job", methods = ["GET"])
 def get_job():
