@@ -133,7 +133,7 @@ def login():
                     'is_manager': True,
                     'exp': datetime.datetime.utcnow().timestamp() + 40
                 }, app.config['SECRET_KEY'])
-                return Response(json.dumps({'access_token': token})), 200
+                return Response(json.dumps({'access_token': token, 'manager': manager.to_dict()})), 200
             else:  # user is trying to login
                 user = User.query.filter_by(email=request.json["email"]).first()
                 if not user or not check_password_hash(user.password, request.json["password"]):
@@ -143,7 +143,7 @@ def login():
                     'is_manager': False,
                     'exp': datetime.datetime.utcnow().timestamp() + 40
                 }, app.config['SECRET_KEY'])
-                return Response(json.dumps({'access_token': token})), 200
+                return Response(json.dumps({'access_token': token, 'user': user.to_dict()})), 200
     else:
         return generate_error_response("some fields are missing in the request")
 
