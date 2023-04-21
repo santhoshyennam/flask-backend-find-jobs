@@ -24,7 +24,7 @@ def filter_jobs():
         # Get filter_text for filtering
         filter_text = request.json.get('filter_text')
         # Build filter criteria based on query parameters
-        filters = or_(Job.title.ilike(f'%{filter_text}%'),Job.category_id.ilike(f'%{filter_text}%'),Job.description.ilike(f'%{filter_text}%'))
+        filters = or_(Job.title.ilike(f'%{filter_text}%'),or_(Job.category_id.ilike(f'%{filter_text}%'),Job.description.ilike(f'%{filter_text}%')))
         # Query database with filters
         jobs = Job.query.filter(filters).all()
         if not jobs:
@@ -48,9 +48,9 @@ def get_job():
 def create_job():
     if not g.user:
         return generate_error_response('UnAuthorize Access'),401
-    if "title" in request.json and "salary" in request.json and "company" in request.json and "category" in request.json and "description" in request.json and "email" in request.json and "created_by" in request.json:
+    if "title" in request.json and "salary" in request.json and "company" in request.json and "category_id" in request.json and "description" in request.json and "email" in request.json and "created_by" in request.json:
         data = request.get_json()
-        new_job = Job(title=data['title'], salary=data['salary'], company=data["company"], category=data["category"], description=data["description"], email=data["email"],created_by=data["created_by"])
+        new_job = Job(title=data['title'], salary=data['salary'], company=data["company"], category_id=data["category_id"], description=data["description"], email=data["email"],created_by=data["created_by"])
         db.session.add(new_job)
         db.session.commit()
         return Response(json.dumps(new_job.to_dict()), mimetype='application/json'),201
@@ -88,7 +88,7 @@ def edit_job():
         job.title = request.json.get('title',job.title)
         job.salary = request.json.get('salary',job.salary)
         job.company = request.json.get('company',job.company)
-        job.category_id = request.json.get('category',job.category_id)
+        job.category_id = request.json.get('category_id',job.category_id)
         job.description = request.json.get('description',job.description)
         job.email = request.json.get('email',job.email)
 
