@@ -4,7 +4,7 @@ baseDir = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
     SECRET_KEY = 'mscs3150'
-    SQLALCHEMY_DATABASE_URI = 'mysql://root:@localhost/flaskexample'
+    SQLALCHEMY_DATABASE_URI = 'mysql://root:@localhost/jobfinder'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_SECRET_KEY = "Jwt-key123"
     JWT_ACCESS_TOKEN_EXPIRES = datetime.timedelta(hours=24)
