@@ -34,10 +34,7 @@ def get_user():
         return Response(json.dumps(user.to_dict()), mimetype='application/json') 
 
 @main.route("/create-user", methods = ["POST"])
-@check_manager_token
 def create_user():
-    if not g.user:
-        return generate_error_response('UnAuthorize Access'),401
     if "name" in request.json and "mobile" in request.json and "age" in request.json and "email" in request.json and "address" in request.json and "date_of_birth" in request.json and "password" in request.json:
         data = request.get_json()
         user = User.query.filter_by(email=request.json["email"]).first()
